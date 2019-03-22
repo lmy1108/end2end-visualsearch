@@ -1,0 +1,673 @@
+{
+	"AWSTemplateFormatVersion": "2010-09-09",
+	"Description": "Deploy 2 services - Web & Api on AWS Fargate, hosted in a private subnet, but accessible via a public load balancer. This also launches an EC2 instance using Deep Learning Ubuntu AMI",
+	"Parameters": {
+		"StackName": {
+			"Type": "String",
+			"Default": "fargateNetworking",
+			"Description": "The name of the parent Fargate networking stack that you created. Necessary\nto locate and reference resources created by that stack."
+		},
+		"KeyName": {
+			"Description": "Name of an existing Amazon EC2 KeyPair to enable SSH access to the instances",
+			"Type": "AWS::EC2::KeyPair::KeyName"
+		},
+		"AppServiceName": {
+			"Type": "String",
+			"Default": "mxnet-model-server-fargate-app",
+			"Description": "A name for the App service"
+		},
+		"WebServiceName": {
+			"Type": "String",
+			"Default": "mxnet-model-server-fargate-web",
+			"Description": "A name for the Web service"
+		},
+		"WebContainerPort": {
+			"Type": "Number",
+			"Default": 8000,
+			"Description": "What port number the application inside the Web docker container is binding to"
+		},
+		"WebHostPort": {
+			"Type": "Number",
+			"Default": 8000,
+			"Description": "What port number the application inside the Web docker container is binding to"
+		},
+		"AppContainerPort": {
+			"Type": "Number",
+			"Default": 8080,
+			"Description": "What port number the application inside the App docker container is binding to"
+		},
+		"AppHostPort": {
+			"Type": "Number",
+			"Default": 8080,
+			"Description": "What port number the application inside the App docker container is binding to"
+		},
+		"WebContainerCpu": {
+			"Type": "Number",
+			"Default": 256,
+			"Description": "How much CPU to give the container. 1024 is 1 CPU"
+		},
+		"WebContainerMemory": {
+			"Type": "Number",
+			"Default": 512,
+			"Description": "How much memory in megabytes to give the container"
+		},
+		"AppContainerCpu": {
+			"Type": "Number",
+			"Default": 2048,
+			"Description": "How much CPU to give the container. 1024 is 1 CPU"
+		},
+		"AppContainerMemory": {
+			"Type": "Number",
+			"Default": 4096,
+			"Description": "How much memory in megabytes to give the container"
+		},
+		"Path": {
+			"Type": "String",
+			"Default": "*",
+			"Description": "A path on the public load balancer that this service\nshould be connected to. Use * to send all load balancer\ntraffic to this service."
+		},
+		"Priority": {
+			"Type": "Number",
+			"Default": 1,
+			"Description": "The priority for the routing rule added to the load balancer.\nThis only applies if your have multiple services which have been\nassigned to different paths on the load balancer."
+		},
+		"AppDesiredCount": {
+			"Type": "Number",
+			"Default": 2,
+			"Description": "How many copies of the service task to run"
+		},
+		"Role": {
+			"Type": "String",
+			"Default": "",
+			"Description": "(Optional) An IAM role to give the service's containers if the code within needs to\naccess other AWS resources like S3 buckets, DynamoDB tables, etc"
+		},
+		"DeepLearningInstanceType": {
+			"Description": "The EC2 instance type for workers.For GPUs choose g2.xx or p3.xx",
+			"Type": "String",
+			"Default": "p3.2xlarge",
+			"AllowedValues": [
+				"p2.16xlarge",
+				"p2.8xlarge",
+				"p2.xlarge",
+				"p3.2xlarge",
+				"p3.8xlarge",
+				"p3.16xlarge",
+				"g2.8xlarge",
+				"g2.2xlarge",
+				"i2.xlarge",
+				"i2.2xlarge",
+				"i2.4xlarge",
+				"i2.8xlarge",
+				"d2.xlarge",
+				"d2.2xlarge",
+				"d2.4xlarge",
+				"d2.8xlarge",
+				"f1.2xlarge",
+				"f1.16xlarge"
+			],
+			"ConstraintDescription": "Must be a valid CPU optimized or GPU EC2 instance type."
+		}
+	},
+	"Metadata": {
+		"AWS::CloudFormation::Interface": {
+			"ParameterGroups": [{
+					"Label": {
+						"default": "Deep Learning Instance configuration"
+					},
+					"Parameters": [
+						"",
+						"DeepLearningInstanceType",
+						"KeyName"
+					]
+				},
+				{
+					"Label": {
+						"default": "Configuration"
+					},
+					"Parameters": [
+						"StackName",
+						"Path",
+						"Priority",
+						"Role"
+					]
+				},
+				{
+					"Label": {
+						"default": "Web Task Definition Configuration"
+					},
+					"Parameters": [
+						"WebServiceName",
+						"WebContainerCpu",
+						"WebContainerMemory",
+						"WebContainerPort",
+						"WebHostPort"
+					]
+				},
+				{
+					"Label": {
+						"default": "App Task Definition Configuration"
+					},
+					"Parameters": [
+						"AppServiceName",
+						"AppContainerCpu",
+						"AppContainerMemory",
+						"AppContainerPort",
+						"AppHostPort",
+						"AppDesiredCount"
+					]
+				}
+			]
+		}
+	},
+	"Conditions": {
+		"HasCustomRole": {
+			"Fn::Not": [{
+				"Fn::Equals": [
+					{ "Ref": "Role" },
+					""
+				]
+			}]
+		}
+	},
+	"Mappings": {
+		"DeepLearningAMI": {
+			"us-east-1": { "AMI": "ami-099021e563ad6eab5" },
+			"ap-northeast-1": { "AMI": "ami-0b5afaa6a5a611ce0" },
+			"ap-northeast-2": { "AMI": "ami-03ba22912b5e07bf4" },
+			"ap-southeast-1": { "AMI": "ami-03dd181b02b607d7a" },
+			"eu-west-1": { "AMI": "ami-0889b07a985938615" }
+		}
+	},
+	"Resources": {
+		"WebTaskDefinition": {
+			"Type": "AWS::ECS::TaskDefinition",
+			"Properties": {
+				"Family": { "Ref": "WebServiceName" },
+				"Cpu": { "Ref": "WebContainerCpu" },
+				"Memory": { "Ref": "WebContainerMemory" },
+				"NetworkMode": "awsvpc",
+				"RequiresCompatibilities": [
+					"FARGATE"
+				],
+				"ExecutionRoleArn": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ECSTaskExecutionRole"]] }
+				},
+				"TaskRoleArn": {
+					"Fn::If": [
+						"HasCustomRole",
+						{ "Ref": "Role" },
+						{ "Ref": "AWS::NoValue" }
+					]
+				},
+				"ContainerDefinitions": [{
+					"Name": { "Ref": "WebServiceName" },
+					"Cpu": { "Ref": "WebContainerCpu" },
+					"Memory": { "Ref": "WebContainerMemory" },
+					"Image": {
+						"Fn::Join": ["", [{ "Ref": "AWS::AccountId" },
+							".dkr.ecr.",
+							{ "Ref": "AWS::Region" },
+							".amazonaws.com/", { "Ref": "WebRepository" }, ":latest"
+						]]
+					},
+					"PortMappings": [{
+						"ContainerPort": { "Ref": "WebContainerPort" }
+					}],
+					"Essential": true,
+					"EntryPoint": [
+						"python", "-m", "SimpleHTTPServer"
+					]
+				}]
+			}
+		},
+		"AppTaskDefinition": {
+			"Type": "AWS::ECS::TaskDefinition",
+			"DependsOn": "DeepLearningInstance",
+			"Properties": {
+				"Family": { "Ref": "AppServiceName" },
+				"Cpu": { "Ref": "AppContainerCpu" },
+				"Memory": { "Ref": "AppContainerMemory" },
+				"NetworkMode": "awsvpc",
+				"RequiresCompatibilities": [
+					"FARGATE"
+				],
+				"ExecutionRoleArn": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ECSTaskExecutionRole"]] }
+				},
+				"TaskRoleArn": {
+					"Fn::If": [
+						"HasCustomRole",
+						{ "Ref": "Role" },
+						{ "Ref": "AWS::NoValue" }
+					]
+				},
+				"ContainerDefinitions": [{
+					"Name": { "Ref": "AppServiceName" },
+					"Cpu": { "Ref": "AppContainerCpu" },
+					"Memory": { "Ref": "AppContainerMemory" },
+					"Image": {
+						"Fn::Join": ["", [{ "Ref": "AWS::AccountId" },
+							".dkr.ecr.",
+							{ "Ref": "AWS::Region" },
+							".amazonaws.com/", { "Ref": "AppRepository" }, ":latest"
+						]]
+					},
+					"PortMappings": [{
+						"ContainerPort": { "Ref": "AppContainerPort" },
+						"HostPort": { "Ref": "AppHostPort" },
+						"Protocol": "tcp"
+					}],
+					"Essential": true,
+					"EntryPoint": [
+						"mxnet-model-server", "start", "--mms-config", "/mxnet_model_server/mms_app_cpu.conf"
+					],
+					"LogConfiguration": {
+						"LogDriver": "awslogs",
+						"Options": {
+							"awslogs-group": {
+								"Ref": "CloudwatchLogsGroup"
+							},
+							"awslogs-region": {
+								"Ref": "AWS::Region"
+							},
+							"awslogs-stream-prefix": { "Ref": "AppServiceName" }
+						}
+					}
+				}]
+			}
+		},
+		"CloudwatchLogsGroup": {
+			"Type": "AWS::Logs::LogGroup",
+			"Properties": {
+				"LogGroupName": {
+					"Fn::Join": [
+						"-", [
+							"ECSLogGroup",
+							{
+								"Ref": "AWS::StackName"
+							}
+						]
+					]
+				},
+				"RetentionInDays": 14
+			}
+		},
+		"WebService": {
+			"Type": "AWS::ECS::Service",
+			"DependsOn": "WebLoadBalancerRule",
+			"Properties": {
+				"ServiceName": { "Ref": "WebServiceName" },
+				"Cluster": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ClusterName"]] }
+				},
+				"LaunchType": "FARGATE",
+				"DeploymentConfiguration": {
+					"MaximumPercent": 200,
+					"MinimumHealthyPercent": 100
+				},
+				"DesiredCount": 1,
+				"NetworkConfiguration": {
+					"AwsvpcConfiguration": {
+						"SecurityGroups": [{
+							"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "FargateContainerSecurityGroup"]] }
+						}],
+						"Subnets": [{
+								"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PrivateSubnetOne"]] }
+							},
+							{
+								"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PrivateSubnetTwo"]] }
+							}
+						]
+					}
+				},
+				"TaskDefinition": { "Ref": "WebTaskDefinition" },
+				"LoadBalancers": [{
+					"ContainerName": { "Ref": "WebServiceName" },
+					"ContainerPort": { "Ref": "WebContainerPort" },
+					"TargetGroupArn": { "Ref": "WebTargetGroup" }
+				}]
+			}
+		},
+		"AppService": {
+			"Type": "AWS::ECS::Service",
+			"DependsOn": "AppLoadBalancerRule",
+			"Properties": {
+				"ServiceName": { "Ref": "AppServiceName" },
+				"Cluster": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ClusterName"]] }
+				},
+				"LaunchType": "FARGATE",
+				"DeploymentConfiguration": {
+					"MaximumPercent": 200,
+					"MinimumHealthyPercent": 75
+				},
+				"DesiredCount": { "Ref": "AppDesiredCount" },
+				"NetworkConfiguration": {
+					"AwsvpcConfiguration": {
+						"SecurityGroups": [{
+							"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "FargateContainerSecurityGroup"]] }
+						}],
+						"Subnets": [{
+								"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PrivateSubnetOne"]] }
+							},
+							{
+								"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PrivateSubnetTwo"]] }
+							}
+						]
+					}
+				},
+				"TaskDefinition": { "Ref": "AppTaskDefinition" },
+				"LoadBalancers": [{
+					"ContainerName": { "Ref": "AppServiceName" },
+					"ContainerPort": { "Ref": "AppContainerPort" },
+					"TargetGroupArn": { "Ref": "AppTargetGroup" }
+				}]
+			}
+		},
+		"WebTargetGroup": {
+			"Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+			"Properties": {
+				"HealthCheckIntervalSeconds": 6,
+				"HealthCheckPath": "/",
+				"HealthCheckProtocol": "HTTP",
+				"HealthCheckTimeoutSeconds": 5,
+				"HealthyThresholdCount": 2,
+				"TargetType": "ip",
+				"Name": { "Ref": "WebServiceName" },
+				"Port": { "Ref": "WebContainerPort" },
+				"Protocol": "HTTP",
+				"UnhealthyThresholdCount": 2,
+				"VpcId": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "VPCId"]] }
+				}
+			}
+		},
+		"AppTargetGroup": {
+			"Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+			"Properties": {
+				"HealthCheckIntervalSeconds": 20,
+				"HealthCheckPath": "/",
+				"HealthCheckProtocol": "HTTP",
+				"HealthCheckTimeoutSeconds": 15,
+				"HealthyThresholdCount": 2,
+				"TargetType": "ip",
+				"Name": { "Ref": "AppServiceName" },
+				"Port": { "Ref": "AppContainerPort" },
+				"Protocol": "HTTP",
+				"UnhealthyThresholdCount": 2,
+				"VpcId": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "VPCId"]] }
+				}
+			}
+		},
+		"WebLoadBalancerRule": {
+			"Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+			"Properties": {
+				"Actions": [{
+					"TargetGroupArn": { "Ref": "WebTargetGroup" },
+					"Type": "forward"
+				}],
+				"Conditions": [{
+					"Field": "path-pattern",
+					"Values": [
+						{ "Ref": "Path" }
+					]
+				}],
+				"ListenerArn": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PublicListener"]] }
+				},
+				"Priority": { "Ref": "Priority" }
+			}
+		},
+		"AppLoadBalancerRule": {
+			"Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+			"Properties": {
+				"Actions": [{
+					"TargetGroupArn": { "Ref": "AppTargetGroup" },
+					"Type": "forward"
+				}],
+				"Conditions": [{
+					"Field": "path-pattern",
+					"Values": [
+						{ "Ref": "Path" }
+					]
+				}],
+				"ListenerArn": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PublicLoadBalancerAppListener"]] }
+				},
+				"Priority": { "Ref": "Priority" }
+			}
+		},
+		"DeepLearningInstance": {
+			"Type": "AWS::EC2::Instance",
+			"DependsOn": ["AppRepository", "WebRepository"],
+			"CreationPolicy": {
+				"ResourceSignal": {
+					"Timeout": "PT15M"
+				}
+			},
+			"Properties": {
+				"ImageId": { "Fn::FindInMap": ["DeepLearningAMI", { "Ref": "AWS::Region" }, "AMI"] },
+				"KeyName": { "Ref": "KeyName" },
+				"InstanceType": { "Ref": "DeepLearningInstanceType" },
+				"SecurityGroupIds": [{ "Ref": "DeepLearningSG" }],
+				"SubnetId": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "PublicSubnetOne"]] }
+				},
+				"IamInstanceProfile": { "Ref": "DLInstanceProfile" },
+				"Tags": [{
+					"Key": "Name",
+					"Value": "DeepLearningInstance"
+				}, {
+					"Key": "Project",
+					"Value": "VisualSearch_MXNetWorkshop"
+				}],
+				"UserData": {
+					"Fn::Base64": {
+						"Fn::Join": ["", [
+							"#!/bin/bash -xe\n",
+
+							"apt-get update -y\n",
+
+							"#Install cfn packages", "\n",
+							"wget https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.zip", "\n",
+							"unzip aws-cfn-bootstrap-latest.zip", "\n",
+							"cd aws*", "\n",
+							"python setup.py install", "\n",
+
+
+							"cd ..", "\n",
+							"pwd", "\n",
+
+							"#Install Docker and git packages", "\n",
+							"delgroup --remove-all-files --remove-home docker", "\n",
+
+							"apt-get install -y git \n",
+							"apt-get install -y docker.io\n",
+
+							"git clone https://github.com/gaonkarr/VisualSearch_MXNet_CFN.git\n",
+							"cd VisualSearch_MXNet_CFN", "\n",
+
+							"#Get docker login", "\n",
+							"`aws ecr get-login --region ", { "Ref": "AWS::Region" }, "`\n",
+
+							"#Build Web Image & push to its repository", "\n",
+							"cd web", "\n",
+
+							"#Replace the API endpoint to App ELB", "\n",
+							"sed -i 's$https://api.thomasdelteil.com$", { "Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "InternalUrl"]] } }, "$g' index.html",
+							"\n",
+							"docker build -t ", { "Ref": "WebRepository" }, ":latest  . ", "\n",
+							"docker images", "\n",
+							"docker tag ", { "Ref": "WebRepository" }, ":latest ", { "Ref": "AWS::AccountId" }, ".dkr.ecr.", { "Ref": "AWS::Region" }, ".amazonaws.com/", { "Ref": "WebRepository" }, ":latest", "\n",
+							"docker push ", { "Ref": "AWS::AccountId" }, ".dkr.ecr.", { "Ref": "AWS::Region" }, ".amazonaws.com/", { "Ref": "WebRepository" }, ":latest", "\n",
+
+							"# Signal the status from cfn-init\n",
+							"cfn-signal -e $? ",
+							"         --stack ", { "Ref": "AWS::StackName" },
+							"         --resource DeepLearningInstance ",
+							"         --region ", { "Ref": "AWS::Region" }, "\n",
+
+
+							"#Build App API Image & push to its repository", "\n",
+							"cd ../app", "\n",
+							"docker build -t ", { "Ref": "AppRepository" }, ":latest  . ", "\n",
+							"docker images", "\n",
+							"docker tag ", { "Ref": "AppRepository" }, ":latest ", { "Ref": "AWS::AccountId" }, ".dkr.ecr.", { "Ref": "AWS::Region" }, ".amazonaws.com/", { "Ref": "AppRepository" }, ":latest", "\n",
+							"docker push ", { "Ref": "AWS::AccountId" }, ".dkr.ecr.", { "Ref": "AWS::Region" }, ".amazonaws.com/", { "Ref": "AppRepository" }, ":latest", "\n",
+
+							"# PRewarm EBS", "\n",
+							"dd if=/dev/xvda of=/dev/null bs=1M status=progress", "\n"
+
+
+						]]
+					}
+				}
+			}
+		},
+		"DeepLearningSG": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "Access to the public facing deep learning instance ",
+				"VpcId": {
+					"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "VPCId"]] }
+				},
+				"SecurityGroupIngress": [{
+					"CidrIp": "0.0.0.0/0",
+					"IpProtocol": -1
+				}]
+			}
+		},
+		"DLRole": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [{
+						"Effect": "Allow",
+						"Principal": {
+							"Service": ["ec2.amazonaws.com"]
+						},
+						"Action": ["sts:AssumeRole"]
+					}]
+				},
+				"Path": "/",
+				"Policies": [{
+					"PolicyName": "AmazonEC2ContainerRegistryFullAccess",
+					"PolicyDocument": {
+						"Version": "2012-10-17",
+						"Statement": [{
+							"Effect": "Allow",
+							"Action": [
+								"ecr:*",
+								"cloudtrail:LookupEvents",
+								"ecs:*",
+								"logs:CreateLogStream",
+								"logs:PutLogEvents"
+							],
+							"Resource": "*"
+						}]
+					}
+				}]
+			}
+		},
+		"DLInstanceProfile": {
+			"Type": "AWS::IAM::InstanceProfile",
+			"Properties": {
+				"Path": "/",
+				"Roles": [{
+					"Ref": "DLRole"
+				}]
+			}
+		},
+
+		"AppRepository": {
+			"Type": "AWS::ECR::Repository",
+			"Properties": {
+				"RepositoryPolicyText": {
+					"Version": "2008-10-17",
+					"Statement": [{
+						"Sid": "AllowPushPull",
+						"Effect": "Allow",
+						"Principal": {
+							"AWS": [
+								"*"
+							]
+						},
+						"Action": [
+							"ecr:GetDownloadUrlForLayer",
+							"ecr:BatchGetImage",
+							"ecr:BatchCheckLayerAvailability",
+							"ecr:PutImage",
+							"ecr:InitiateLayerUpload",
+							"ecr:UploadLayerPart",
+							"ecr:CompleteLayerUpload"
+						]
+					}]
+				}
+			}
+		},
+		"WebRepository": {
+			"Type": "AWS::ECR::Repository",
+			"Properties": {
+				"RepositoryPolicyText": {
+					"Version": "2008-10-17",
+					"Statement": [{
+						"Sid": "AllowPushPull",
+						"Effect": "Allow",
+						"Principal": {
+							"AWS": [
+								"*"
+							]
+						},
+						"Action": [
+							"ecr:GetDownloadUrlForLayer",
+							"ecr:BatchGetImage",
+							"ecr:BatchCheckLayerAvailability",
+							"ecr:PutImage",
+							"ecr:InitiateLayerUpload",
+							"ecr:UploadLayerPart",
+							"ecr:CompleteLayerUpload"
+						]
+					}]
+				}
+			}
+		}
+	},
+	"Outputs": {
+		"DeepLearningInstancePublicIP": {
+			"Description": "The IP of the Deep Learning Instance",
+			"Value": { "Fn::GetAtt": ["DeepLearningInstance", "PublicIp"] }
+		},
+		"WebServiceName": {
+			"Description": "Name of ECS Web Service",
+			"Value": { "Ref": "WebService" }
+		},
+		"AppServiceName": {
+			"Description": "Name of ECS App Service",
+			"Value": { "Ref": "AppService" }
+		},
+		"AppRepositoryURI": {
+			"Description": "The URI to be used in Docker commands",
+			"Value": { "Fn::Join": ["", [{ "Ref": "AWS::AccountId" }, ".dkr.ecr.", { "Ref": "AWS::Region" }, ".amazonaws.com/", { "Ref": "AppRepository" }, ":latest"]] }
+		},
+		"WebELBurl": {
+			"Description": "The url of the WEB external load balancer",
+			"Value": {
+				"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ExternalWebUrl"]] }
+			}
+		},
+		"AppELBurl": {
+			"Description": "The url of the App external load balancer",
+			"Value": {
+				"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ExternalAppUrl"]] }
+			}
+		},
+		"ClusterName": {
+			"Description": "The name of the ECS cluster",
+			"Value": {
+				"Fn::ImportValue": { "Fn::Join": [":", [{ "Ref": "StackName" }, "ClusterName"]] }
+			}
+		}
+	}
+}
