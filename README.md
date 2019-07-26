@@ -58,7 +58,7 @@ In actual use, the system automatically recognizes the images uploaded by the us
 In the retrieval process of goods, it is often found that the results of using image retrieval do not belong to the user's product category. Although these products are very similar in appearance to the products that users search for, they are completely different types of goods. For example, when searching for a certain style of clothing, they often search for books with very similar pattern covers. From the customer's point of view, Such a search is obviously not ideal. The wrong category will make the goods that the customer wants are very different from the returned goods, so that the customer's confidence in searching in this way is reduced, and finally the utility of the system is reduced, in order to change the situation. This system uses two methods to solve the classification problem.
 <br> We use ResNet to extract features from 500k datas and trained an ensenbled model to do the classification.
 <p align="center">
-	<img src="https://github.com/lmy1108/end2end-visualsearch/blob/master/images/vs2.png" alt="Sample">
+	<img src="https://github.com/lmy1108/end2end-visualsearch/blob/master/images/vs2.PNG" alt="Sample">
 	<p align="center">
 		<em>train the random forest model</em>
 	</p>
