@@ -54,7 +54,9 @@ In actual use, the system automatically recognizes the images uploaded by the us
 		<em>silver shoes with same pattern</em>
 	</p>
 </p>
+
 ### Product Classification Module
+
 In the retrieval process of goods, it is often found that the results of using image retrieval do not belong to the user's product category. Although these products are very similar in appearance to the products that users search for, they are completely different types of goods. For example, when searching for a certain style of clothing, they often search for books with very similar pattern covers. From the customer's point of view, Such a search is obviously not ideal. The wrong category will make the goods that the customer wants are very different from the returned goods, so that the customer's confidence in searching in this way is reduced, and finally the utility of the system is reduced, in order to change the situation. This system uses two methods to solve the classification problem.
 <br> We use ResNet to extract features from 500k datas and trained an ensenbled model to do the classification.
 <p align="center">
@@ -76,7 +78,9 @@ In the retrieval process of goods, it is often found that the results of using i
 		<em>the result shows the mobile catagory wins</em>
 	</p>
 </p>
+
 ### Cache Supporting High Concurrency  
+
 This system uses Redis as a cache to solve the concurrency problem. The main idea is to create a List in the cache, and use the idea of analog queue to gradually increase the picture of different users to the end of the List, using multi-thread asynchronously from the processing. The List header takes data so that users who are largely guaranteed will not interfere with each other when they access it at the same time. We also conducted stress tests to estimate the maximum number of visits. Use the Curl command to iterate through the target URL and record the number of visits per second. In the case of the current system memory size, the system can support about 200 simultaneous requests.
 <p align="center">
 	<img src="https://github.com/lmy1108/end2end-visualsearch/blob/master/images/vs15.PNG" alt="Sample">
