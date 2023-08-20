@@ -1,5 +1,5 @@
 # end2end-visualsearch
-A visual search system used for product retrieval, test on amazon product data
+A visual search system used for product retrieval, tested on amazon product data
 
 ## Purpose of design
 This Project designs an online image retrieval system. Image preprocessing is performed by target detection and image segmentation, which solves the problem of acquiring key information in complex background. The integrated ResNet and HNSW methods are proposed to extract image features and perform nearest neighbor search. The results of target detection and image tags are The combination of inverted indexes enables further refined merchandise search. At the same time, this paper also proposes a retrieval system based on image classifier based on convolutional neural network, which further optimizes the accuracy and speed of retrieval through commodity pre-classification.<br>
